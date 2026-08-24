@@ -1,0 +1,17 @@
+my-wedding-app/
+├── src/
+│   ├── assets/          # Musik, Foto Galeri, Icon
+│   ├── components/      # Komponen kecil reusable (Button, Input, Card)
+│   ├── context/         # State management global (jika dibutuhkan)
+│   ├── lib/             # Konfigurasi pihak ketiga (supabaseClient.ts)
+│   ├── sections/        # Potongan pilar halaman utama
+│   │   ├── Cover.tsx
+│   │   ├── Invitation.tsx
+│   │   ├── Gift.tsx
+│   │   └── RSVP.tsx
+│   ├── types/           # Definisi tipe data TypeScript (database schema)
+│   ├── App.tsx          # Menggabungkan semua seksi halaman
+│   ├── main.tsx
+│   └── index.css        # Styling Tailwind CSS
+├── .env                 # Menyimpan kunci API Supabase secara aman
+└── index.html
