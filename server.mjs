@@ -156,9 +156,26 @@ const mailer = smtpUser && smtpPass ? nodemailer.createTransport({
   port: Number(process.env.SMTP_PORT || 465),
   secure: String(process.env.SMTP_SECURE || 'true') === 'true',
   auth: { user: smtpUser, pass: smtpPass },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 20000,
 }) : null;
 
 const hashOtp = (otp) => crypto.createHash('sha256').update(otp).digest('hex');
+
+const sendOtpEmail = async (email, otp) => {
+  try {
+    await mailer.sendMail({
+      from: process.env.SMTP_FROM || smtpUser,
+      to: email,
+      subject: 'Kode OTP Wedding Invitation',
+      text: `Kode verifikasi akun Anda: ${otp}\nKode berlaku selama 10 menit.`,
+    });
+  } catch (error) {
+    console.error('Gagal mengirim email OTP:', error instanceof Error ? error.message : 'Kesalahan SMTP tidak diketahui.');
+    throw Object.assign(new Error('Email OTP gagal dikirim. Periksa konfigurasi SMTP Railway atau coba kirim ulang.'), { statusCode: 502 });
+  }
+};
 
 const initializeAuthSchema = async () => {
   await pool.query(`
@@ -355,13 +372,13 @@ const server = http.createServer(async (request, response) => {
         VALUES ($1, $2, $3, now() + interval '10 minutes')
         ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, otp_hash = EXCLUDED.otp_hash, otp_expires_at = EXCLUDED.otp_expires_at, verified = false`, [normalizedEmail, passwordHash, hashOtp(otp)]);
       if (mailer) {
-        await mailer.sendMail({ from: process.env.SMTP_FROM || smtpUser, to: normalizedEmail, subject: 'Kode OTP Wedding Invitation', text: `Kode verifikasi akun Anda: ${otp}\nKode berlaku selama 10 menit.` });
+        await sendOtpEmail(normalizedEmail, otp);
         json(response, 201, { message: 'OTP berhasil dikirim.' });
       } else {
         console.log(`[DEV OTP] ${normalizedEmail}: ${otp}`);
         json(response, 201, { message: 'OTP development dibuat.', developmentOtp: otp });
       }
-    } catch (error) { json(response, 400, { error: error.message }); }
+    } catch (error) { json(response, error?.statusCode || 400, { error: error.message }); }
     return;
   }
 
@@ -397,13 +414,13 @@ const server = http.createServer(async (request, response) => {
         WHERE email = $2 AND verified = false RETURNING email`, [hashOtp(otp), normalizedEmail]);
       if (!result.rows[0]) { json(response, 400, { error: 'Akun belum terdaftar atau sudah diverifikasi.' }); return; }
       if (mailer) {
-        await mailer.sendMail({ from: process.env.SMTP_FROM || smtpUser, to: normalizedEmail, subject: 'Kode OTP Wedding Invitation', text: `Kode verifikasi akun Anda: ${otp}\nKode berlaku selama 10 menit.` });
+        await sendOtpEmail(normalizedEmail, otp);
         json(response, 200, { message: 'OTP berhasil dikirim ulang.' });
       } else {
         console.log(`[DEV OTP] ${normalizedEmail}: ${otp}`);
         json(response, 200, { message: 'OTP development dibuat ulang.', developmentOtp: otp });
       }
-    } catch (error) { json(response, 400, { error: error.message }); }
+    } catch (error) { json(response, error?.statusCode || 400, { error: error.message }); }
     return;
   }
 

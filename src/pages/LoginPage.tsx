@@ -15,17 +15,21 @@ export const LoginPage: React.FC = () => {
     setError('');
     setLoading(true);
 
-    const { error: authError } = await localApi.auth.signInWithPassword({
-      email: email,
-      password: password,
-    });
+    try {
+      const { error: authError } = await localApi.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    setLoading(false);
-
-    if (authError) {
-      setError(authError.message);
-    } else {
-      navigate('/admin'); 
+      if (authError) {
+        setError(authError.message);
+      } else {
+        navigate('/admin');
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Login gagal. Silakan coba lagi.');
+    } finally {
+      setLoading(false);
     }
   };
 

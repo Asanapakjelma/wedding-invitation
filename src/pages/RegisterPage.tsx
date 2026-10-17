@@ -24,19 +24,24 @@ export const RegisterPage: React.FC = () => {
     }
 
     setLoading(true);
-    const { data: signUpData, error: signUpError } = await localApi.auth.signUp({
-      email: email.trim(),
-      password,
-      options: { emailRedirectTo: `${window.location.origin}/verify-email` },
-    });
-    setLoading(false);
+    try {
+      const { data: signUpData, error: signUpError } = await localApi.auth.signUp({
+        email: email.trim(),
+        password,
+        options: { emailRedirectTo: `${window.location.origin}/verify-email` },
+      });
 
-    if (signUpError) {
-      setError(signUpError.message);
-      return;
+      if (signUpError) {
+        setError(signUpError.message);
+        return;
+      }
+
+      navigate(`/verify-email?email=${encodeURIComponent(email.trim())}`, { state: { developmentOtp: signUpData?.developmentOtp } });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Pendaftaran gagal. Silakan coba lagi.');
+    } finally {
+      setLoading(false);
     }
-
-    navigate(`/verify-email?email=${encodeURIComponent(email.trim())}`, { state: { developmentOtp: signUpData?.developmentOtp } });
   };
 
   return (

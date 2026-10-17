@@ -1,13 +1,27 @@
 type ApiResult<T> = { data: T | null; error: Error | null };
 
 type QueryOperation = 'select' | 'insert' | 'update' | 'upsert' | 'delete';
+const requestTimeoutMs = 45000;
 
 const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
   const token = localStorage.getItem('wedding-admin-token');
-  const response = await fetch(url, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init?.headers || {}) },
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), requestTimeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init?.headers || {}) },
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Permintaan terlalu lama. Periksa koneksi server lalu coba lagi.', { cause: error });
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || `Request gagal (${response.status}).`);
   return body as T;

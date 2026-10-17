@@ -10,33 +10,50 @@ export const VerifyEmailPage: React.FC = () => {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
   const navigate = useNavigate();
 
   const handleVerify = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
     setLoading(true);
-    const { error: verifyError } = await localApi.auth.verifyOtp({
-      email: email.trim(),
-      token: code.trim(),
-      type: 'signup',
-    });
-    setLoading(false);
+    try {
+      const { error: verifyError } = await localApi.auth.verifyOtp({
+        email: email.trim(),
+        token: code.trim(),
+        type: 'signup',
+      });
 
-    if (verifyError) {
-      setError(verifyError.message);
-      return;
+      if (verifyError) {
+        setError(verifyError.message);
+        return;
+      }
+      navigate('/admin', { replace: true });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Verifikasi gagal. Silakan coba lagi.');
+    } finally {
+      setLoading(false);
     }
-    navigate('/admin', { replace: true });
   };
 
   const resendCode = async () => {
     setError('');
-    const { data, error: resendError } = await localApi.auth.resend({ type: 'signup', email: email.trim() });
-    if (resendError) setError(resendError.message);
-    else {
-      setDevelopmentOtp(data?.developmentOtp);
-      setError(data?.developmentOtp ? 'Mode development: gunakan OTP yang ditampilkan di bawah.' : 'Kode verifikasi baru sudah dikirim ke email Anda.');
+    if (!email.trim()) {
+      setError('Masukkan email akun terlebih dahulu.');
+      return;
+    }
+    setResending(true);
+    try {
+      const { data, error: resendError } = await localApi.auth.resend({ type: 'signup', email: email.trim() });
+      if (resendError) setError(resendError.message);
+      else {
+        setDevelopmentOtp(data?.developmentOtp);
+        setError(data?.developmentOtp ? 'Mode development: gunakan OTP yang ditampilkan di bawah.' : 'Kode verifikasi baru sudah dikirim ke email Anda.');
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Pengiriman OTP gagal. Silakan coba lagi.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -73,7 +90,9 @@ export const VerifyEmailPage: React.FC = () => {
         </form>
 
         <div className="flex items-center justify-between text-xs">
-          <button type="button" onClick={() => void resendCode()} className="text-[#6F4E37] hover:text-[#5a3f2b]">Kirim ulang OTP</button>
+          <button type="button" onClick={() => void resendCode()} disabled={resending} className="text-[#6F4E37] hover:text-[#5a3f2b] disabled:opacity-50">
+            {resending ? 'Mengirim ulang...' : 'Kirim ulang OTP'}
+          </button>
           <button type="button" onClick={() => navigate('/login')} className="text-stone-400 hover:text-stone-600">Kembali ke login</button>
         </div>
       </div>
