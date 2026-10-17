@@ -33,7 +33,7 @@ Frontend di-deploy ke Vercel; API Node.js dan PostgreSQL berjalan di Railway. Ra
 
 ### Vercel
 
-Deploy repository yang sama sebagai project Vite. Setelah domain HTTPS API Railway tersedia, atur rewrite `/api/*` dan `/uploads/*` ke domain Railway supaya permintaan API dan berkas upload diteruskan ke backend. Jangan memakai URL API HTTP.
+Deploy repository yang sama sebagai project Vite. File [vercel.json](./vercel.json) meneruskan `/api/*` dan `/uploads/*` ke domain HTTPS Railway serta mengarahkan rute frontend ke `index.html` untuk React Router. Jika domain Railway berubah, perbarui kedua destination di `vercel.json`. Jangan memakai URL API HTTP.
 
 ### Schema dan file upload
 
