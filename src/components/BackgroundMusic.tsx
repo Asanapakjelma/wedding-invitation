@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import weddingSong from '../assets/wedding-music.mp3'; // Pastikan file mp3 sudah ditaruh di folder assets
 
-export const BackgroundMusic: React.FC = () => {
+interface BackgroundMusicProps {
+  musicUrl?: string;
+}
+
+export const BackgroundMusic: React.FC<BackgroundMusicProps> = ({ musicUrl }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const isPlayingRef = useRef(false);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
   useEffect(() => {
-    audioRef.current = new Audio(weddingSong);
+    audioRef.current = new Audio(musicUrl || weddingSong);
     audioRef.current.loop = true;
 
     // Browser melarang auto-play instan, musik akan memicu otomatis saat layar pertama kali diklik/disentuh tamu
@@ -28,7 +32,7 @@ export const BackgroundMusic: React.FC = () => {
         audioRef.current.pause();
       }
     };
-  }, []);
+  }, [musicUrl]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;

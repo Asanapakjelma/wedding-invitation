@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import React, { useState, useEffect, useCallback } from 'react';
+import { isTestGuest, mapsResolverUrl, RSVP_RESET_AT, localApi, resetRsvps } from '../lib/localApi';
 import { useNavigate } from 'react-router-dom';
 
 interface DashboardPageProps {
@@ -10,6 +10,9 @@ interface DashboardPageProps {
   bcaPria: string; setBcaPria: (num: string) => void;
   waxColor: string; setWaxColor: (color: string) => void;
   textColor: string; setTextColor: (color: string) => void;
+  googleMapsUrl: string; setGoogleMapsUrl: (url: string) => void;
+  backgroundUrl: string; setBackgroundUrl: (url: string) => void;
+  musicUrl: string; setMusicUrl: (url: string) => void;
 }
 
 interface GuestItem {
@@ -24,6 +27,15 @@ interface WeddingPhoto {
   caption?: string;
 }
 
+interface DashboardRsvp {
+  id: string;
+  guest_name: string;
+  attendance_status: string;
+  total_guest: number;
+  wishes: string;
+  created_at: string;
+}
+
 export const DashboardPage: React.FC<DashboardPageProps> = ({
   brideName, setBrideName,
   groomName, setGroomName,
@@ -31,7 +43,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   bcaWanita, setBcaWanita,
   bcaPria, setBcaPria,
   waxColor, setWaxColor,
-  textColor, setTextColor
+  textColor, setTextColor,
+  googleMapsUrl, setGoogleMapsUrl,
+  backgroundUrl, setBackgroundUrl,
+  musicUrl, setMusicUrl
 }) => {
   const navigate = useNavigate();
 
@@ -43,6 +58,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [baseUrl] = useState<string>(() => window.location.origin);
   const [guestList, setGuestList] = useState<GuestItem[]>([]);
   const [saveLoading, setSaveLoading] = useState<boolean>(false);
+  const [mediaLoading, setMediaLoading] = useState<'background' | 'music' | null>(null);
   
   // State baru berbasis Map Objek untuk melacak foto per Slot (Key: slot_number)
   const [photos, setPhotos] = useState<Record<number, WeddingPhoto>>({});
@@ -51,17 +67,77 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   // TAMBAHAN: State untuk menampung data kalkulasi statistik buku tamu (RSVP)
   const [stats, setStats] = useState({ hadir: 0, absen: 0, totalTamu: 0 });
+  const [rsvpResponses, setRsvpResponses] = useState<DashboardRsvp[]>([]);
+  const [userId, setUserId] = useState('');
+
+  const calculateRsvpStats = useCallback(async () => {
+    try {
+      if (!userId) return;
+      const response = await fetch(`/api/rsvp?owner=${encodeURIComponent(userId)}`);
+      if (!response.ok) throw new Error('Gagal memuat RSVP.');
+      const data = await response.json() as DashboardRsvp[];
+      const visibleResponses = data.filter((row) =>
+        new Date(row.created_at) >= RSVP_RESET_AT && !isTestGuest(row.guest_name)
+      );
+      setRsvpResponses(visibleResponses);
+      let hadirCount = 0;
+      let absenCount = 0;
+      let totalOrang = 0;
+      visibleResponses.forEach((row) => {
+        if (row.attendance_status === 'Hadir') {
+          hadirCount++;
+          totalOrang += row.total_guest || 1;
+        } else {
+          absenCount++;
+        }
+      });
+      setStats({ hadir: hadirCount, absen: absenCount, totalTamu: totalOrang });
+    } catch (err) {
+      console.error('Gagal mengalkulasi data statistik RSVP:', err);
+    }
+  }, [userId]);
+
+  const handleResetRsvps = async () => {
+    if (!userId || !window.confirm('Hapus semua RSVP dan doa restu dari akun ini?')) return;
+    try {
+      await resetRsvps(userId);
+      setRsvpResponses([]);
+      setStats({ hadir: 0, absen: 0, totalTamu: 0 });
+      alert('Semua RSVP dan doa restu sudah direset ke nol.');
+    } catch (error) {
+      alert('Gagal mereset RSVP: ' + (error instanceof Error ? error.message : 'Terjadi kesalahan.'));
+    }
+  };
 
   // Ambil daftar foto "Our Moments" dan statistik RSVP saat komponen pertama kali dimuat
   useEffect(() => {
+    void localApi.auth.getSession().then(({ data }) => setUserId(data.session?.user.id || ''));
     fetchOurMomentsPhotos();
-    calculateRsvpStats();
   }, []);
 
-  const fetchOurMomentsPhotos = async () => {
+  useEffect(() => {
+    if (!userId) return;
+    void Promise.resolve().then(() => calculateRsvpStats());
+    fetch(`/api/settings?owner=${encodeURIComponent(userId)}`)
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Gagal memuat settings user.')))
+      .then((data: Record<string, unknown>) => {
+        if (typeof data.bride_name === 'string') setBrideName(data.bride_name);
+        if (typeof data.groom_name === 'string') setGroomName(data.groom_name);
+        if (typeof data.wedding_date === 'string') setWeddingDate(data.wedding_date);
+        if (typeof data.bca_wanita === 'string') setBcaWanita(data.bca_wanita);
+        if (typeof data.bca_pria === 'string') setBcaPria(data.bca_pria);
+        if (typeof data.wax_color === 'string') setWaxColor(data.wax_color);
+        if (typeof data.text_color === 'string') setTextColor(data.text_color);
+        if (typeof data.google_maps_url === 'string') setGoogleMapsUrl(data.google_maps_url);
+        if (typeof data.background_url === 'string') setBackgroundUrl(data.background_url);
+        if (typeof data.music_url === 'string') setMusicUrl(data.music_url);
+      })
+      .catch((error: unknown) => console.error(error));
+  }, [userId, calculateRsvpStats, setBrideName, setGroomName, setWeddingDate, setBcaWanita, setBcaPria, setWaxColor, setTextColor, setGoogleMapsUrl, setBackgroundUrl, setMusicUrl]);
+
+  async function fetchOurMomentsPhotos() {
     try {
-      const { data, error } = await supabase
-        .from('wedding_photos')
+      const { data, error } = await localApi.from<WeddingPhoto[]>('wedding_photos')
         .select('slot_number, photo_url, caption');
 
       if (error) throw error;
@@ -76,60 +152,119 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     } catch (err) {
       console.error('Gagal mengambil data foto dari database:', err);
     }
-  };
-
-  // TAMBAHAN: Fungsi untuk menarik data rsvp_responses dan menghitung akumulasi kehadiran katering
-  const calculateRsvpStats = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('rsvp_responses')
-        .select('attendance_status, total_guest');
-      
-      if (error) throw error;
-
-      if (data) {
-        let hadirCount = 0;
-        let absenCount = 0;
-        let totalOrang = 0;
-
-        data.forEach(row => {
-          if (row.attendance_status === 'Hadir') {
-            hadirCount++;
-            totalOrang += row.total_guest || 1;
-          } else {
-            absenCount++;
-          }
-        });
-        
-        setStats({ hadir: hadirCount, absen: absenCount, totalTamu: totalOrang });
-      }
-    } catch (err) {
-      console.error('Gagal mengalkulasi data statistik RSVP:', err);
-    }
-  };
+  }
 
   // Fungsi simpan data konfigurasi teks dan warna tema ke database
   const handleSaveAllSettings = async () => {
     setSaveLoading(true);
-    const { error } = await supabase
-      .from('wedding_settings')
-      .update({
-        bride_name: brideName,
-        groom_name: groomName,
-        wedding_date: weddingDate,
-        bca_wanita: bcaWanita,
-        bca_pria: bcaPria,
-        wax_color: waxColor,
-        text_color: textColor
-      })
-      .eq('id', 1);
+    try {
+      const normalizedGoogleMapsUrl = googleMapsUrl.trim();
+      let resolvedGoogleMapsUrl = normalizedGoogleMapsUrl;
 
-    setSaveLoading(false);
+      if (normalizedGoogleMapsUrl) {
+        const resolverResponse = await fetch(mapsResolverUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: normalizedGoogleMapsUrl }),
+        });
+        const resolverResult = await resolverResponse.json();
 
-    if (!error) {
+        if (!resolverResponse.ok) {
+          throw new Error(resolverResult.error || 'Link Google Maps tidak dapat diproses.');
+        }
+
+        resolvedGoogleMapsUrl = resolverResult.resolvedUrl;
+        setGoogleMapsUrl(resolvedGoogleMapsUrl);
+      }
+
+      const { error } = await localApi
+        .from('wedding_settings')
+        .update({
+          bride_name: brideName,
+          groom_name: groomName,
+          wedding_date: weddingDate,
+          bca_wanita: bcaWanita,
+          bca_pria: bcaPria,
+          wax_color: waxColor,
+          text_color: textColor,
+          google_maps_url: resolvedGoogleMapsUrl,
+          background_url: backgroundUrl,
+          music_url: musicUrl
+        })
+        .eq('user_id', userId);
+
+      if (error) throw error;
       alert('✓ Selamat! Seluruh konfigurasi tema telah tersimpan permanen di basis data pusat cloud.');
-    } else {
-      alert('Gagal menyimpan data: ' + error.message);
+    } catch (error) {
+      alert('Gagal menyimpan data: ' + (error instanceof Error ? error.message : 'Terjadi kesalahan.'));
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleUploadMedia = async (type: 'background' | 'music', event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const isBackground = type === 'background';
+    const validType = isBackground ? file.type.startsWith('image/') : file.type.startsWith('audio/');
+    const maxSize = isBackground ? 5 * 1024 * 1024 : 15 * 1024 * 1024;
+
+    if (!validType) {
+      alert(isBackground ? 'File harus berupa gambar.' : 'File harus berupa audio.');
+      event.target.value = '';
+      return;
+    }
+    if (file.size > maxSize) {
+      alert(`Ukuran file terlalu besar. Maksimal ${isBackground ? '5 MB' : '15 MB'}.`);
+      event.target.value = '';
+      return;
+    }
+
+    setMediaLoading(type);
+    try {
+      if (!userId) throw new Error('Sesi user belum siap. Muat ulang halaman.');
+      const filePath = isBackground ? `users/${userId}/background/background.jpg` : `users/${userId}/music.mp3`;
+      const { error: uploadError } = await localApi.storage
+        .from('wedding-gallery')
+        .upload(filePath, file, { cacheControl: '0', upsert: true, contentType: file.type });
+      if (uploadError) throw uploadError;
+
+      const { data } = localApi.storage.from('wedding-gallery').getPublicUrl(filePath);
+      const mediaUrl = `${data.publicUrl}?v=${Date.now()}`;
+      const { error: settingsError } = await localApi
+        .from('wedding_settings')
+        .update(isBackground ? { background_url: mediaUrl } : { music_url: mediaUrl })
+        .eq('user_id', userId);
+      if (settingsError) throw settingsError;
+
+      if (isBackground) setBackgroundUrl(mediaUrl);
+      else setMusicUrl(mediaUrl);
+      alert(`✓ ${isBackground ? 'Background' : 'Lagu'} berhasil diunggah dan diterapkan.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Terjadi kesalahan.';
+      alert(message.includes('row-level security policy')
+        ? 'Gagal mengunggah file: izin penyimpanan lokal belum tersedia.'
+        : 'Gagal mengunggah file: ' + message);
+    } finally {
+      setMediaLoading(null);
+      event.target.value = '';
+    }
+  };
+
+  const handleRemoveMedia = async (type: 'background' | 'music') => {
+    try {
+      const field = type === 'background' ? 'background_url' : 'music_url';
+      const { error } = await localApi
+        .from('wedding_settings')
+        .update({ [field]: null })
+        .eq('user_id', userId);
+      if (error) throw error;
+
+      if (type === 'background') setBackgroundUrl('');
+      else setMusicUrl('');
+    } catch (error) {
+      alert('Gagal menghapus media: ' + (error instanceof Error ? error.message : 'Terjadi kesalahan.'));
     }
   };
 
@@ -160,19 +295,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       const fileName = `slot_${slotNumber}_${Date.now()}.${fileExt}`;
       const filePath = `gallery/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
+      const { error: uploadError } = await localApi.storage
         .from('wedding-gallery')
         .upload(filePath, file, { cacheControl: '3600', upsert: true });
 
       if (uploadError) throw uploadError;
 
       // Dapatkan URL Publik File Gambar dari Storage
-      const { data: { publicUrl } } = supabase.storage
+      const { data: { publicUrl } } = localApi.storage
         .from('wedding-gallery')
         .getPublicUrl(filePath);
 
       // Simpan data tautan menggunakan upsert
-      const { error: dbError } = await supabase
+      const { error: dbError } = await localApi
         .from('wedding_photos')
         .upsert({
           slot_number: slotNumber,
@@ -184,8 +319,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
       await fetchOurMomentsPhotos(); 
       e.target.value = ''; 
-    } catch (error: any) {
-      alert('Terjadi kesalahan sistem: ' + error.message);
+    } catch (error: unknown) {
+      alert('Terjadi kesalahan sistem: ' + (error instanceof Error ? error.message : 'Terjadi kesalahan.'));
     } finally {
       setLoadingSlot(null);
     }
@@ -196,7 +331,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     if (!confirm(`Apakah Anda yakin ingin menghapus foto di Slot ${slotNumber}?`)) return;
     
     try {
-      const { error } = await supabase
+      const { error } = await localApi
         .from('wedding_photos')
         .delete()
         .eq('slot_number', slotNumber);
@@ -208,24 +343,32 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       setPhotos(updatedPhotos);
       
       alert(`✓ Foto pada slot ${slotNumber} berhasil dihapus.`);
-    } catch (error: any) {
-      alert('Gagal menghapus foto: ' + error.message);
+    } catch (error: unknown) {
+      alert('Gagal menghapus foto: ' + (error instanceof Error ? error.message : 'Terjadi kesalahan.'));
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await localApi.auth.signOut();
     navigate('/');
   };
 
-  const handleGenerateLink = (e: React.FormEvent) => {
+  const handleGenerateLink = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!guestName.trim()) return;
+    const session = userId ? null : await localApi.auth.getSession();
+    const activeUserId = userId || session?.data.session?.user.id || '';
+    if (!activeUserId) {
+      alert('Sesi akun belum siap. Silakan tunggu sebentar lalu coba lagi.');
+      return;
+    }
     setSubmittedGuestName(guestName.trim());
     const encodedName = encodeURIComponent(guestName.trim());
-    setGeneratedLink(`${baseUrl}/?to=${encodedName}`);
+    setUserId(activeUserId);
+    const invitationUrl = `${baseUrl}/invitation?to=${encodedName}&owner=${encodeURIComponent(activeUserId)}`;
+    setGeneratedLink(invitationUrl);
 
-    const newGuest: GuestItem = { id: Date.now().toString(), name: guestName.trim(), link: `${baseUrl}/?to=${encodedName}` };
+    const newGuest: GuestItem = { id: Date.now().toString(), name: guestName.trim(), link: invitationUrl };
     setGuestList([newGuest, ...guestList]);
     setGuestName(''); 
   };
@@ -245,11 +388,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         {/* HEADER BAR PANEL */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-6 rounded-2xl border border-stone-200 shadow-sm gap-4">
           <div>
-            <h1 className="font-serif text-2xl font-bold text-stone-900">Editor Undangan Pernikahan</h1>
-            <p className="text-xs text-stone-400 mt-1">Kelola konten, seksi Our Moments storage, dan generator WhatsApp tamu</p>
+            <h1 className="font-serif text-2xl font-bold text-stone-900">Halaman Edit Undangan Pernikahan</h1>
+            <p className="text-xs text-stone-400 mt-1">Kelola konten wedding invitation Anda disini.</p>
           </div>
           <div className="flex gap-2 w-full sm:w-auto">
-            <button onClick={() => navigate('/?to=Tamu%20Uji%20Coba')} className="flex-1 sm:flex-none px-4 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold uppercase tracking-wider rounded-xl transition-colors">Lihat Hasil</button>
+            <button onClick={() => navigate(`/invitation?to=Tamu%20Uji%20Coba&owner=${encodeURIComponent(userId)}`)} disabled={!userId} className="flex-1 sm:flex-none px-4 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold uppercase tracking-wider rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Lihat Hasil</button>
             <button onClick={handleLogout} className="flex-1 sm:flex-none px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-bold uppercase tracking-wider rounded-xl transition-colors">Keluar</button>
           </div>
         </div>
@@ -268,6 +411,34 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <span className="text-[10px] uppercase font-bold text-stone-400 tracking-wider block">Tidak Bisa Hadir</span>
             <p className="text-2xl font-bold text-red-500">{stats.absen} <span className="text-xs font-normal text-stone-400">Undangan</span></p>
           </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b pb-2">
+            <h2 className="text-xs font-bold text-stone-400 uppercase tracking-widest">RSVP & Doa Restu Tamu</h2>
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => void calculateRsvpStats()} className="text-[10px] font-bold uppercase tracking-wider text-[#6F4E37] hover:text-[#5a3f2b]">Muat ulang</button>
+              <button type="button" onClick={() => void handleResetRsvps()} disabled={!userId} className="text-[10px] font-bold uppercase tracking-wider text-red-500 hover:text-red-700 disabled:opacity-50">Reset RSVP</button>
+            </div>
+          </div>
+          {rsvpResponses.length === 0 ? (
+            <p className="text-xs text-stone-400 italic">Belum ada konfirmasi dari tamu undangan.</p>
+          ) : (
+            <div className="space-y-3 max-h-80 overflow-y-auto">
+              {rsvpResponses.map((response) => (
+                <div key={response.id} className="border-b border-stone-100 pb-3 last:border-0 last:pb-0">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-semibold text-stone-800">{response.guest_name}</span>
+                    <span className={`text-[10px] font-bold ${response.attendance_status === 'Hadir' ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {response.attendance_status === 'Hadir' ? `Hadir (${response.total_guest} orang)` : 'Tidak hadir'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-500 italic mt-1">{response.wishes || 'Tidak ada ucapan.'}</p>
+                  <p className="text-[10px] text-stone-400 mt-1">{new Date(response.created_at).toLocaleString('id-ID')}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* LAYOUT KONTROL GRID */}
@@ -308,6 +479,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </div>
             </div>
 
+            {/* BACKGROUND MUSIC */}
+            <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-4">
+              <div>
+                <h2 className="text-xs font-bold text-stone-400 uppercase tracking-widest border-b pb-2">Background Music Invitation</h2>
+                <p className="text-[11px] text-stone-400 mt-1">Upload atau hapus lagu yang diputar pada invitation.</p>
+              </div>
+              {musicUrl && <audio controls src={musicUrl} className="w-full" />}
+              <div className="flex gap-2">
+                <label className="flex-1 text-center px-4 py-2.5 bg-stone-800 text-white text-xs font-bold uppercase tracking-wider rounded-xl cursor-pointer hover:bg-stone-700 transition-colors">
+                  {mediaLoading === 'music' ? 'Mengunggah...' : 'Upload Lagu'}
+                  <input type="file" accept="audio/*" className="hidden" onChange={(event) => handleUploadMedia('music', event)} disabled={mediaLoading !== null} />
+                </label>
+                {musicUrl && <button type="button" onClick={() => handleRemoveMedia('music')} className="px-4 py-2.5 bg-red-50 text-red-600 border border-red-100 text-xs font-bold rounded-xl">Hapus</button>}
+              </div>
+            </div>
+
             {/* INTEGRASI GANTI FOTO SATU PERSATU DENGAN CAPTION INPUT MANDIRI */}
             <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-4">
               <div>
@@ -345,7 +532,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                               }}
                               onBlur={async (e) => {
                                 try {
-                                  await supabase
+                                  await localApi
                                     .from('wedding_photos')
                                     .update({ caption: e.target.value })
                                     .eq('slot_number', slotNumber);
@@ -400,6 +587,34 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   );
                 })}
               </div>
+            </div>
+
+            {/* GOOGLE MAPS LOCATION */}
+            <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-4">
+              <div>
+                <h2 className="text-xs font-bold text-stone-400 uppercase tracking-widest border-b pb-2">Lokasi Acara - Google Maps</h2>
+                <p className="text-[11px] text-stone-400 mt-1">Tambahkan link lokasi Google Maps agar tamu dapat menemukan tempat acara dengan mudah.</p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-stone-600">Link Google Maps</label>
+                <input
+                  type="url"
+                  value={googleMapsUrl}
+                  onChange={(e) => setGoogleMapsUrl(e.target.value)}
+                  placeholder="https://maps.google.com/..."
+                  className="w-full px-4 py-2 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none"
+                />
+              </div>
+              {googleMapsUrl && (
+                <a
+                  href={googleMapsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex w-fit px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold uppercase tracking-wider rounded-xl transition-colors"
+                >
+                  Buka Link Google Maps
+                </a>
+              )}
             </div>
 
             {/* WA LINK GENERATOR */}
@@ -459,8 +674,24 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
           </div>
 
-          {/* KUSTOMISASI WARNA STEMPEL */}
           <div className="space-y-6">
+            {/* BACKGROUND INVITATION */}
+            <div className="self-start h-fit bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-4">
+            <div>
+              <h2 className="text-xs font-bold text-stone-400 uppercase tracking-widest border-b pb-2">Background Invitation</h2>
+              <p className="text-[11px] text-stone-400 mt-1">Upload atau hapus gambar background invitation.</p>
+            </div>
+            {backgroundUrl && <img src={backgroundUrl} alt="Preview background invitation" className="w-full h-28 object-cover rounded-xl border border-stone-200" />}
+            <div className="flex gap-2">
+              <label className="flex-1 text-center px-4 py-2.5 bg-stone-800 text-white text-xs font-bold uppercase tracking-wider rounded-xl cursor-pointer hover:bg-stone-700 transition-colors">
+                {mediaLoading === 'background' ? 'Mengunggah...' : 'Upload Gambar'}
+                <input type="file" accept="image/*" className="hidden" onChange={(event) => handleUploadMedia('background', event)} disabled={mediaLoading !== null} />
+              </label>
+              {backgroundUrl && <button type="button" onClick={() => handleRemoveMedia('background')} className="px-4 py-2.5 bg-red-50 text-red-600 border border-red-100 text-xs font-bold rounded-xl">Hapus</button>}
+            </div>
+            </div>
+
+            {/* KUSTOMISASI WARNA STEMPEL */}
             <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-4">
               <h2 className="text-xs font-bold text-stone-400 uppercase tracking-widest border-b pb-2">Kustomisasi Warna Tombol</h2>
               <div className="space-y-4">

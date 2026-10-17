@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient'; 
+import { localApi } from '../lib/localApi'; 
 import { DynamicGuest } from '../components/DynamicGuest';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { BankAccountCard } from '../components/BankAccountCard';
@@ -19,6 +19,9 @@ interface InvitationPageProps {
   bcaPria: string;
   waxColor: string;
   textColor: string;
+  googleMapsUrl: string;
+  backgroundUrl: string;
+  musicUrl: string;
 }
 
 interface WeddingPhoto {
@@ -26,6 +29,19 @@ interface WeddingPhoto {
   photo_url: string;
   caption?: string | null;
 }
+
+const getGoogleMapsEmbedUrl = (url: string) => {
+  if (url.includes('/embed')) return url;
+
+  const coordinates = url.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/)
+    || url.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+
+  if (coordinates) {
+    return `https://www.google.com/maps?q=${coordinates[1]},${coordinates[2]}&z=17&output=embed`;
+  }
+
+  return `https://www.google.com/maps?q=${encodeURIComponent(url)}&output=embed`;
+};
 
 // Komponen internal untuk menangani animasi fade-in per gambar secara halus
 const GalleryImage: React.FC<{ src: string; alt: string }> = ({ src, alt }) => {
@@ -59,7 +75,10 @@ export const InvitationPage: React.FC<InvitationPageProps> = ({
   bcaWanita,
   bcaPria,
   waxColor,
-  textColor
+  textColor,
+  googleMapsUrl,
+  backgroundUrl,
+  musicUrl
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [galleryPhotos, setGalleryPhotos] = useState<WeddingPhoto[]>([]);
@@ -69,8 +88,7 @@ export const InvitationPage: React.FC<InvitationPageProps> = ({
     const fetchGalleryData = async () => {
       try {
         setLoadingPhotos(true);
-        const { data, error } = await supabase
-          .from('wedding_photos')
+        const { data, error } = await localApi.from<WeddingPhoto[]>('wedding_photos')
           .select('slot_number, photo_url, caption')
           .order('slot_number', { ascending: true }); 
 
@@ -97,17 +115,17 @@ export const InvitationPage: React.FC<InvitationPageProps> = ({
         !isOpen ? 'h-screen overflow-hidden' : 'overflow-x-hidden'
       }`}
       style={{ 
-        backgroundImage: `linear-gradient(to bottom, rgba(249, 246, 240, 0.68), rgba(249, 246, 240, 0.78)), url(${batikBg})` 
+        backgroundImage: `linear-gradient(to bottom, rgba(249, 246, 240, 0.68), rgba(249, 246, 240, 0.78)), url(${backgroundUrl || batikBg})` 
       }}
     >
-      <BackgroundMusic />
+      <BackgroundMusic musicUrl={musicUrl} />
 
       {/* ================= HALAMAN 1: HERO / COVER ================= */}
       {!isOpen ? (
         <header className="fixed inset-0 z-50 h-screen w-full flex flex-col justify-between items-center text-center px-4 py-12 overflow-hidden bg-[#F9F6F0]">
           <div 
             className="absolute inset-0 bg-cover bg-center transition-transform duration-1000 scale-100"
-            style={{ backgroundImage: `linear-gradient(to bottom, rgba(249, 246, 240, 0.70), rgba(249, 246, 240, 0.90)), url(${heroImage})` }}
+            style={{ backgroundImage: `linear-gradient(to bottom, rgba(249, 246, 240, 0.70), rgba(249, 246, 240, 0.90)), url(${backgroundUrl || heroImage})` }}
           ></div>
           
           <div className="absolute inset-0 bg-[radial-gradient(#2C2724_1px,transparent_1px)] bg-size-[24px_24px] opacity-5 pointer-events-none"></div>
@@ -219,7 +237,7 @@ export const InvitationPage: React.FC<InvitationPageProps> = ({
             </section>
           </ScrollReveal>
 
-                    {/* SEKSI DIGITAL GIFT */}
+          {/* SEKSI DIGITAL GIFT */}
           <section className="space-y-6">
             <ScrollReveal>
               <div className="text-center max-w-sm mx-auto">
@@ -246,6 +264,37 @@ export const InvitationPage: React.FC<InvitationPageProps> = ({
               <RSVP />
             </div>
           </ScrollReveal>
+
+          {/* SEKSI LOKASI ACARA */}
+          {googleMapsUrl && (
+            <ScrollReveal>
+              <section className="text-center space-y-5 bg-white/80 backdrop-blur-md p-6 md:p-8 rounded-3xl border border-[#E6DFD3]/80 shadow-sm">
+                <div>
+                  <h2 className="font-serif text-2xl text-[#2C2724] font-medium tracking-wide">Lokasi Acara</h2>
+                  <div className="w-12 h-px bg-[#8C8275] mx-auto my-3"></div>
+                </div>
+                <div className="overflow-hidden rounded-2xl border border-[#E6DFD3]/80 bg-stone-100">
+                  <iframe
+                    key={googleMapsUrl}
+                    title="Lokasi acara di Google Maps"
+                    src={getGoogleMapsEmbedUrl(googleMapsUrl)}
+                    className="w-full h-64 border-0"
+                    loading="lazy"
+                    allowFullScreen
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
+                <a
+                  href={googleMapsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex px-5 py-3 bg-[#6F4E37] hover:bg-[#5a3f2b] text-white text-xs uppercase font-bold tracking-wider rounded-xl transition-colors shadow-sm"
+                >
+                  Buka Lokasi di Google Maps
+                </a>
+              </section>
+            </ScrollReveal>
+          )}
 
           {/* FOOTER */}
           <footer className="text-center pt-8 border-t border-[#E6DFD3]/40 text-[#5A524A] text-[10px] tracking-widest space-y-1">

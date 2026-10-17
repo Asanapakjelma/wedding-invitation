@@ -4,7 +4,7 @@ import 'jspdf-autotable';
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType } from 'docx';
 import { saveAs } from 'file-saver';
 
-// Antarmuka data sesuai dengan database rsvp_responses di Supabase Anda
+// Antarmuka data sesuai dengan tabel rsvp_responses PostgreSQL lokal.
 interface RsvpData {
   created_at: string;
   guest_name: string;

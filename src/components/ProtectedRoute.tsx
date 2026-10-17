@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient';
+import { localApi } from '../lib/localApi';
+
+type LocalSession = { user: { id: string } } | null;
 
 export const ProtectedRoute: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
@@ -9,16 +11,27 @@ export const ProtectedRoute: React.FC = () => {
   useEffect(() => {
     // Memeriksa status token sesi saat ini secara real-time
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setAuthenticated(!!session);
+      const { data: { session } } = await localApi.auth.getSession() as { data: { session: LocalSession } };
+      if (!session?.user) {
+        setAuthenticated(false);
+        setLoading(false);
+        return;
+      }
+
+      setAuthenticated(true);
       setLoading(false);
     };
 
     checkSession();
 
     // Memantau jika terjadi perubahan status auth (login/logout otomatis)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthenticated(!!session);
+    const { data: { subscription } } = localApi.auth.onAuthStateChange(async (_event, session) => {
+      if (!session?.user) {
+        setAuthenticated(false);
+        return;
+      }
+
+      setAuthenticated(true);
       setLoading(false);
     });
 

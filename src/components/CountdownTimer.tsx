@@ -51,7 +51,7 @@ export const CountdownTimer: React.FC<CountdownProps> = ({ targetDate }) => {
         { label: 'Menit', value: timeLeft.minutes },
         { label: 'Detik', value: timeLeft.seconds },
       ].map((item, idx) => (
-        <div key={idx} className="flex flex-col items-center bg-white/90 backdrop-blur-sm p-3 rounded-xl border border-stone-100 min-w-[65px] shadow-sm">
+        <div key={idx} className="flex flex-col items-center bg-white/90 backdrop-blur-sm p-3 rounded-xl border border-stone-100 min-w-16.25 shadow-sm">
           <span className="text-xl font-bold font-mono text-stone-800">{String(item.value).padStart(2, '0')}</span>
           <span className="text-[10px] uppercase text-stone-400 tracking-wider mt-0.5">{item.label}</span>
         </div>

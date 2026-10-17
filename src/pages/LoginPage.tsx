@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient';
+import { localApi } from '../lib/localApi';
+import BrandLogo from '../components/BrandLogo';
 
 export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState<string>('');
@@ -14,7 +15,7 @@ export const LoginPage: React.FC = () => {
     setError('');
     setLoading(true);
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
+    const { error: authError } = await localApi.auth.signInWithPassword({
       email: email,
       password: password,
     });
@@ -34,9 +35,10 @@ export const LoginPage: React.FC = () => {
       
       {/* Kartu Kontainer Login */}
       <div className="w-full max-w-md bg-white p-8 rounded-3xl border border-[#EBE6DD] shadow-xl space-y-6 animate-fade-in">
+        <BrandLogo compact />
         <div className="text-center space-y-1">
-          <h2 className="font-serif text-2xl font-semibold text-stone-800">Admin Login</h2>
-          <p className="text-xs text-stone-400">Gunakan akun email admin untuk mengonfigurasi tema</p>
+          <h2 className="font-serif text-2xl font-semibold text-stone-800">User Login</h2>
+          <p className="text-xs text-stone-400">Gunakan akun email user untuk mengakses website</p>
         </div>
 
         {error && (
@@ -45,7 +47,7 @@ export const LoginPage: React.FC = () => {
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-4">
+        <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
           <div>
             <label className="block text-xs font-bold text-stone-600 uppercase mb-2">Email Address</label>
             <input 
@@ -53,6 +55,8 @@ export const LoginPage: React.FC = () => {
               value={email} 
               onChange={(e) => setEmail(e.target.value)} 
               placeholder="admin@email.com"
+              name="login-email"
+              autoComplete="off"
               className="w-full px-4 py-3 bg-stone-50/50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:border-stone-400 transition-colors" 
               required 
             />
@@ -64,6 +68,8 @@ export const LoginPage: React.FC = () => {
               value={password} 
               onChange={(e) => setPassword(e.target.value)} 
               placeholder="••••••••"
+              name="login-password"
+              autoComplete="new-password"
               className="w-full px-4 py-3 bg-stone-50/50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:border-stone-400 transition-colors" 
               required 
             />
@@ -76,6 +82,14 @@ export const LoginPage: React.FC = () => {
             {loading ? 'Memvalidasi Sesi...' : 'Masuk ke Dashboard'}
           </button>
         </form>
+
+        <button
+          type="button"
+          onClick={() => navigate('/register')}
+          className="w-full text-xs text-stone-500 hover:text-[#6F4E37] transition-colors"
+        >
+          Belum punya akun? Daftar di sini
+        </button>
       </div>
     </div>
   );

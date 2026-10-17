@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { localApi } from '../lib/localApi';
 
 interface GalleryFile {
   name: string;
@@ -13,7 +13,7 @@ export const PhotoGallery: React.FC = () => {
   const fetchGalleryImages = async () => {
     try {
       // 1. Ambil daftar file dari folder 'gallery' di dalam bucket 'wedding-gallery'
-      const { data, error } = await supabase.storage
+      const { data, error } = await localApi.storage
         .from('wedding-gallery')
         .list('gallery', {
           limit: 100,
@@ -25,9 +25,9 @@ export const PhotoGallery: React.FC = () => {
       if (data) {
         // 2. Saring file berformat gambar dan buat URL publiknya
         const formattedImages = data
-          .filter((file) => file.name !== '.emptyFolderPlaceholder') // Abaikan file placeholder bawaan Supabase
+          .filter((file) => file.name !== '.emptyFolderPlaceholder')
           .map((file) => {
-            const { data: { publicUrl } } = supabase.storage
+            const { data: { publicUrl } } = localApi.storage
               .from('wedding-gallery')
               .getPublicUrl(`gallery/${file.name}`);
             
@@ -48,7 +48,7 @@ export const PhotoGallery: React.FC = () => {
 
   // Jalankan pengambilan data otomatis saat seksi galeri dirender di layar tamu
   useEffect(() => {
-    void fetchGalleryImages();
+    void Promise.resolve().then(fetchGalleryImages);
   }, []);
 
   if (loading) {

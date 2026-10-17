@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient';
+import { isTestGuest, RSVP_RESET_AT, localApi } from '../lib/localApi';
 
 interface RsvpData {
   id: string;
@@ -11,71 +11,94 @@ interface RsvpData {
   created_at: string;
 }
 
+const loadPublicRsvps = async (owner: string) => {
+  if (!owner) return null;
+  const response = await fetch(`/api/rsvp?owner=${encodeURIComponent(owner)}`);
+  if (!response.ok) return null;
+  return await response.json() as RsvpData[];
+};
+
 export const RSVP: React.FC = () => {
   const location = useLocation();
   
-  const [urlGuestName, setUrlGuestName] = useState<string>('');
   const [name, setName] = useState('');
   const [status, setStatus] = useState('Hadir');
   const [total, setTotal] = useState(1);
   const [wishes, setWishes] = useState('');
   const [responses, setResponses] = useState<RsvpData[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [canManageResponses, setCanManageResponses] = useState(false);
+  const urlGuestName = new URLSearchParams(location.search).get('to')?.trim() || '';
+  const owner = new URLSearchParams(location.search).get('owner') || '';
 
   useEffect(() => {
-    fetchRsvpResponses();
-    
-    // Membaca parameter "?to=" dari URL secara ketat
-    const searchParams = new URLSearchParams(location.search);
-    const guestParam = searchParams.get('to');
-    
-    if (guestParam) {
-      const decodedName = decodeURIComponent(guestParam).trim();
-      setUrlGuestName(decodedName);
-      setName(decodedName); // Paksa input teks menggunakan nama tamu dari URL
-    } else {
-      setUrlGuestName('');
-      setName('');
+    void localApi.auth.getSession().then(({ data }) => {
+      setCanManageResponses(Boolean(data.session?.user.id));
+    });
+    void loadPublicRsvps(owner).then((data) => {
+      if (data) {
+        setResponses(data.filter((response) =>
+          new Date(response.created_at) >= RSVP_RESET_AT && !isTestGuest(response.guest_name)
+        ));
+      }
+    });
+  }, [location.search, owner]);
+
+  async function fetchRsvpResponses() {
+    const data = await loadPublicRsvps(owner);
+
+    if (data) {
+      setResponses(data.filter((response) =>
+        new Date(response.created_at) >= RSVP_RESET_AT && !isTestGuest(response.guest_name)
+      ));
     }
-  }, [location.search]);
+  }
 
-  const fetchRsvpResponses = async () => {
-    const { data, error } = await supabase
-      .from('rsvp_responses')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (data && !error) setResponses(data);
+  const handleDelete = async (responseId: string) => {
+    if (!window.confirm('Hapus data RSVP ini?')) return;
+    setDeletingId(responseId);
+    try {
+      const response = await fetch(`/api/rsvp?owner=${encodeURIComponent(owner)}&id=${encodeURIComponent(responseId)}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const fallback = await localApi.from('rsvp_responses').delete().eq('id', responseId);
+        if (fallback.error) throw fallback.error;
+      }
+      setResponses((current) => current.filter((response) => response.id !== responseId));
+    } catch (error) {
+      alert('Gagal menghapus RSVP: ' + (error instanceof Error ? error.message : 'Terjadi kesalahan.'));
+    } finally {
+      setDeletingId(null);
+    }
   };
 
     const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       const finalGuestName = urlGuestName.trim() || name.trim();
 
-      // TAMBAHAN VALIDASI BLOCK LIST:
-      if (finalGuestName.toLowerCase() === 'tamu uji coba') {
-        alert('Fitur RSVP berjalan normal! Teks "Tamu Uji Coba" diblokir oleh sistem agar tidak mengotori database katering pernikahan.');
-        return;
-      }
-
       setLoading(true);
 
       try {
-        const { error } = await supabase
-          .from('rsvp_responses')
-          .insert([
-            {
-              guest_name: finalGuestName, 
-              attendance_status: status,
-              total_guest: status === 'Hadir' ? total : 0,
-              wishes: wishes.trim()
-            }
-          ]);
+          if (!owner) throw new Error('Link undangan tidak valid karena owner tidak ditemukan.');
+          const response = {
+            id: crypto.randomUUID(),
+            guest_name: finalGuestName,
+            attendance_status: status,
+            total_guest: status === 'Hadir' ? total : 0,
+            wishes: wishes.trim(),
+            created_at: new Date().toISOString(),
+          };
 
-        if (error) throw error;
+          const apiResponse = await fetch(`/api/rsvp?owner=${encodeURIComponent(owner)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(response),
+          });
+          if (!apiResponse.ok) throw new Error((await apiResponse.json()).error || 'RSVP tidak dapat disimpan.');
 
         setWishes('');
         setTotal(1);
+          setStatus('Hadir');
       
         if (!urlGuestName) {
           setName('');
@@ -83,8 +106,8 @@ export const RSVP: React.FC = () => {
 
         await fetchRsvpResponses(); 
         alert(`✓ Terima kasih ${finalGuestName}, konfirmasi & ucapan Anda berhasil terkirim!`);
-      } catch (err: any) {
-        alert('Gagal mengirim RSVP: ' + err.message);
+      } catch (err: unknown) {
+        alert('Gagal mengirim RSVP: ' + (err instanceof Error ? err.message : 'Terjadi kesalahan.'));
       } finally {
         setLoading(false);
       }
@@ -105,7 +128,7 @@ export const RSVP: React.FC = () => {
             <label className="font-semibold text-stone-600">Nama Tamu</label>
             <input 
               type="text" 
-              value={name} 
+              value={urlGuestName || name} 
               onChange={(e) => setName(e.target.value)} 
               placeholder="Contoh: Budi Sudarsono" 
               className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none disabled:opacity-75 disabled:bg-stone-100/80 font-medium" 
@@ -198,6 +221,16 @@ export const RSVP: React.FC = () => {
                 <p className="text-[9px] text-stone-400 text-right pt-0.5">
                   {new Date(item.created_at).toLocaleDateString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                 </p>
+                {canManageResponses && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(item.id)}
+                    disabled={deletingId === item.id}
+                    className="text-[9px] text-red-500 hover:text-red-700 disabled:opacity-50"
+                  >
+                    {deletingId === item.id ? 'Menghapus...' : 'Hapus RSVP'}
+                  </button>
+                )}
               </div>
             ))
           )}
