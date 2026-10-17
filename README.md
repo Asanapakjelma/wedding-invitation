@@ -73,3 +73,6 @@ export default defineConfig([
 ])
 
 ```
+
+## Note:
+This project also comes with file size restriction logic for uploads and auto-pluring to prevent the website storage from getting full or slow to access.
