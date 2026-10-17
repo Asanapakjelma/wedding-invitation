@@ -26,7 +26,7 @@ Frontend di-deploy ke Vercel; API Node.js dan PostgreSQL berjalan di Railway. Ra
 3. Buat secret `AUTH_TOKEN_SECRET` yang panjang dan acak. Atur `NODE_ENV=production` dan `DEV_OTP_FALLBACK=false`. Railway mengisi `PORT` secara otomatis.
 4. Hubungkan volume persisten pada service API dengan mount path `/data`, lalu atur `UPLOADS_DIR=/data/uploads`. Tanpa volume, upload akan hilang saat container diganti.
 5. Jalankan [railway-schema.sql](./railway-schema.sql) sekali pada PostgreSQL Railway sebelum API mulai menerima traffic. Schema ini tidak mengimpor contoh RSVP atau data pribadi.
-6. Untuk mengaktifkan registrasi, isi `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, dan `SMTP_FROM` dengan kredensial pengirim OTP. Tanpa SMTP, API tetap hidup tetapi endpoint registrasi mengembalikan `503`.
+6. Untuk email OTP di Railway, gunakan API HTTPS Resend agar tidak bergantung pada koneksi SMTP yang dapat tidak tersedia dari jaringan Railway. Buat API key Resend, verifikasi domain/alamat pengirim di Resend, lalu isi `RESEND_API_KEY` dan `EMAIL_FROM` di Variables service API. Jangan menyimpan API key di Git atau membagikannya lewat chat. SMTP tetap didukung untuk lingkungan yang mengizinkan koneksi SMTP.
 7. Setelah deployment API aktif, buat domain publik HTTPS pada service API. Simpan domain ini untuk konfigurasi Vercel.
 
 `CORS_ORIGINS` menerima daftar origin yang dipisahkan koma. Isi dengan domain Vercel jika browser mengakses API secara langsung; untuk rewrite same-origin dari Vercel, akses frontend tetap memakai domain Vercel. Jangan pernah mengatur CORS ke wildcard dengan credentials.

@@ -17,6 +17,8 @@ const adminPassword = process.env.ADMIN_PASSWORD;
 const tokenSecret = process.env.AUTH_TOKEN_SECRET || (!isProduction ? process.env.ADMIN_TOKEN || crypto.randomBytes(32).toString('hex') : '');
 const smtpUser = (process.env.SMTP_USER || process.env.GMAIL_USER || '').trim();
 const smtpPass = (process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || '').replace(/\s/g, '');
+const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
+const emailFrom = (process.env.EMAIL_FROM || '').trim();
 const devOtpFallback = process.env.NODE_ENV !== 'production' && process.env.DEV_OTP_FALLBACK === 'true';
 const allowedOrigins = new Set((process.env.CORS_ORIGINS || '').split(',').map((origin) => origin.trim()).filter(Boolean));
 
@@ -165,15 +167,49 @@ const hashOtp = (otp) => crypto.createHash('sha256').update(otp).digest('hex');
 
 const sendOtpEmail = async (email, otp) => {
   try {
-    await mailer.sendMail({
-      from: process.env.SMTP_FROM || smtpUser,
-      to: email,
+    const message = {
       subject: 'Kode OTP Wedding Invitation',
       text: `Kode verifikasi akun Anda: ${otp}\nKode berlaku selama 10 menit.`,
-    });
+    };
+    if (resendApiKey) {
+      if (!emailFrom) {
+        throw Object.assign(new Error('EMAIL_FROM harus diisi dengan alamat pengirim yang sudah diverifikasi di Resend.'), { statusCode: 503 });
+      }
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${resendApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ from: emailFrom, to: [email], ...message }),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const result = await response.json().catch(() => ({}));
+          throw new Error(result.message || `Resend menolak permintaan (${response.status}).`);
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    } else if (mailer) {
+      await mailer.sendMail({
+        from: process.env.SMTP_FROM || smtpUser,
+        to: email,
+        ...message,
+      });
+    } else {
+      throw Object.assign(new Error('Penyedia email OTP belum dikonfigurasi.'), { statusCode: 503 });
+    }
   } catch (error) {
     console.error('Gagal mengirim email OTP:', error instanceof Error ? error.message : 'Kesalahan SMTP tidak diketahui.');
-    throw Object.assign(new Error('Email OTP gagal dikirim. Periksa konfigurasi SMTP Railway atau coba kirim ulang.'), { statusCode: 502 });
+    const statusCode = error?.statusCode || 502;
+    const message = error instanceof Error && error.name === 'AbortError'
+      ? 'Penyedia email tidak merespons tepat waktu. Silakan coba lagi.'
+      : 'Email OTP gagal dikirim. Periksa konfigurasi email Railway atau coba kirim ulang.';
+    throw Object.assign(new Error(message), { statusCode });
   }
 };
 
@@ -346,8 +382,8 @@ const server = http.createServer(async (request, response) => {
 
   if (request.method === 'POST' && request.url === '/api/auth/signup') {
     try {
-      if (!mailer && !devOtpFallback) {
-        json(response, 503, { error: 'Akun baru memakai email dan password dari form ini. Server belum memiliki akun pengirim OTP; isi SMTP_USER dan SMTP_PASS dengan Gmail App Password di .env, lalu restart npm run dev.' });
+      if (!resendApiKey && !mailer && !devOtpFallback) {
+        json(response, 503, { error: 'Server belum memiliki penyedia email OTP. Konfigurasikan RESEND_API_KEY dan EMAIL_FROM di Railway.' });
         return;
       }
       const { email, password } = await readJsonBody(request);
@@ -371,7 +407,7 @@ const server = http.createServer(async (request, response) => {
       await pool.query(`INSERT INTO public.app_users (email, password_hash, otp_hash, otp_expires_at)
         VALUES ($1, $2, $3, now() + interval '10 minutes')
         ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, otp_hash = EXCLUDED.otp_hash, otp_expires_at = EXCLUDED.otp_expires_at, verified = false`, [normalizedEmail, passwordHash, hashOtp(otp)]);
-      if (mailer) {
+      if (resendApiKey || mailer) {
         await sendOtpEmail(normalizedEmail, otp);
         json(response, 201, { message: 'OTP berhasil dikirim.' });
       } else {
@@ -406,14 +442,14 @@ const server = http.createServer(async (request, response) => {
 
   if (request.method === 'POST' && request.url === '/api/auth/resend') {
     try {
-      if (!mailer && !devOtpFallback) { json(response, 503, { error: 'Email OTP belum dikonfigurasi di server.' }); return; }
+      if (!resendApiKey && !mailer && !devOtpFallback) { json(response, 503, { error: 'Email OTP belum dikonfigurasi di server.' }); return; }
       const { email } = await readJsonBody(request);
       const normalizedEmail = String(email || '').trim().toLowerCase();
       const otp = String(crypto.randomInt(100000, 1000000));
       const result = await pool.query(`UPDATE public.app_users SET otp_hash = $1, otp_expires_at = now() + interval '10 minutes'
         WHERE email = $2 AND verified = false RETURNING email`, [hashOtp(otp), normalizedEmail]);
       if (!result.rows[0]) { json(response, 400, { error: 'Akun belum terdaftar atau sudah diverifikasi.' }); return; }
-      if (mailer) {
+      if (resendApiKey || mailer) {
         await sendOtpEmail(normalizedEmail, otp);
         json(response, 200, { message: 'OTP berhasil dikirim ulang.' });
       } else {
